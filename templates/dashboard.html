@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FF Bot · Panel</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<nav class="navbar">
+    <div class="nav-brand">
+        <span class="logo-dot"></span>
+        FF <b>BOT</b> PANEL
+    </div>
+    <div class="nav-links">
+        <a href="/" class="active">Dashboard</a>
+        <a href="/accounts">Cuentas</a>
+        <a href="/logs">Logs</a>
+    </div>
+</nav>
+
+<div class="container">
+
+    <div class="hero">
+        <div>
+            <h1>Control Center</h1>
+            <p class="hero-sub">Monitorea tus cuentas en tiempo real</p>
+        </div>
+        <div class="hero-clock" id="clock">--:--:--</div>
+    </div>
+
+    <div class="stats-grid">
+        <div class="stat-card blue">
+            <div class="stat-icon">👥</div>
+            <div class="stat-info">
+                <div class="stat-label">Cuentas</div>
+                <div class="stat-value" id="statTotal">0</div>
+            </div>
+        </div>
+        <div class="stat-card green">
+            <div class="stat-icon">🟢</div>
+            <div class="stat-info">
+                <div class="stat-label">Online</div>
+                <div class="stat-value" id="statOnline">0</div>
+            </div>
+        </div>
+        <div class="stat-card yellow">
+            <div class="stat-icon">🎮</div>
+            <div class="stat-info">
+                <div class="stat-label">Jugando</div>
+                <div class="stat-value" id="statPlaying">0</div>
+            </div>
+        </div>
+        <div class="stat-card purple">
+            <div class="stat-icon">🏆</div>
+            <div class="stat-info">
+                <div class="stat-label">Partidas</div>
+                <div class="stat-value" id="statMatches">0</div>
+            </div>
+        </div>
+        <div class="stat-card orange">
+            <div class="stat-icon">⭐</div>
+            <div class="stat-info">
+                <div class="stat-label">Nivel Prom.</div>
+                <div class="stat-value" id="statLevel">0</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="section-header">
+        <h2>Cuentas Activas</h2>
+        <a href="/accounts" class="btn-ghost">+ Agregar cuenta</a>
+    </div>
+
+    <div id="accountsList" class="accounts-list">
+        <div class="loading">Cargando...</div>
+    </div>
+</div>
+
+<script>
+// EXP aproximada que se necesita por nivel en Free Fire
+// (la barra se llena según el exp actual del nivel)
+const EXP_POR_NIVEL = 40000;
+
+function tickClock(){
+    const d = new Date();
+    const p = n => String(n).padStart(2,'0');
+    document.getElementById('clock').textContent =
+        p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds());
+}
+setInterval(tickClock, 1000); tickClock();
+
+function timeAgo(ts){
+    if(!ts) return 'nunca';
+    const t = new Date(ts).getTime();
+    const diff = Math.floor((Date.now()-t)/1000);
+    if(diff < 60) return diff+'s';
+    if(diff < 3600) return Math.floor(diff/60)+'m';
+    if(diff < 86400) return Math.floor(diff/3600)+'h';
+    return Math.floor(diff/86400)+'d';
+}
+
+async function toggleBot(uid, on) {
+    const fd = new FormData();
+    fd.append('enabled', on ? '1' : '0');
+    await fetch('/api/account/' + uid + '/bot', {method: 'POST', body: fd});
+    refresh();
+}
+
+async function refresh() {
+    try {
+        const stats = await (await fetch('/api/stats')).json();
+        document.getElementById('statTotal').textContent = stats.total_accounts;
+        document.getElementById('statOnline').textContent = stats.online;
+        document.getElementById('statPlaying').textContent = stats.playing;
+        document.getElementById('statMatches').textContent = stats.total_matches;
+        document.getElementById('statLevel').textContent = stats.avg_level;
+
+        const accounts = await (await fetch('/api/accounts')).json();
+        const el = document.getElementById('accountsList');
+        if (!accounts.length) {
+            el.innerHTML = '<div class="empty">No hay cuentas. <a href="/accounts">Agregar una ahora →</a></div>';
+            return;
+        }
+        el.innerHTML = accounts.map(a => {
+            // -------- BARRA DE EXP --------
+            // La barra se llena según el exp actual dentro del nivel (0 a EXP_POR_NIVEL)
+            const expActual = parseInt(a.exp) || 0;
+            const pct = Math.min(100, Math.round((expActual / EXP_POR_NIVEL) * 100));
+            const pctText = `${a.matches_played} / ${a.max_matches || '∞'}`;
+
+            const statusClass = a.status || 'offline';
+            const botOn = a.bot_enabled == 1;
+            return `
+            <div class="account-card status-${statusClass}">
+                <div class="acc-glow"></div>
+                <div class="acc-header">
+                    <div class="acc-nick">${a.nickname || 'Desconocido'}</div>
+                    <div class="status-pill ${statusClass}">
+                        <span class="pulse"></span>${statusClass}
+                    </div>
+                </div>
+                <div class="acc-uid">UID ${a.uid} · ID ${a.account_id || '-'}</div>
+
+                <div class="acc-progress">
+                    <div class="progress-head">
+                        <span>Nivel <b>${a.level}</b></span>
+                        <span>EXP <b>${a.exp}</b></span>
+                    </div>
+                    <div class="progress-track">
+                        <div class="progress-fill" style="width:${pct}%"></div>
+                    </div>
+                    <div class="progress-sub">
+                        <span>EXP: <b>${expActual} / ${EXP_POR_NIVEL}</b></span>
+                        <span>Región: <b>${a.region || '-'}</b></span>
+                    </div>
+                </div>
+
+                <div class="acc-stats">
+                    <div><b>${a.matches_played}</b><small>Jugadas</small></div>
+                    <div><b>${a.matches_won}</b><small>Victorias</small></div>
+                    <div><b>${timeAgo(a.last_seen)}</b><small>Último visto</small></div>
+                </div>
+
+                <div class="acc-footer">
+                    <button class="bot-state ${botOn?'on':'off'}"
+                            onclick="toggleBot('${a.uid}', ${botOn?0:1})">
+                        ${botOn ? '▶ Bot activo' : '⏸ Pausado'}
+                    </button>
+                    <a href="/accounts" class="acc-config">⚙</a>
+                </div>
+            </div>`;
+        }).join('');
+    } catch(e) { console.error(e); }
+}
+refresh();
+setInterval(refresh, 2500);
+</script>
+</body>
+</html>
