@@ -3,10 +3,13 @@ import os
 import sqlite3
 from datetime import datetime
 
-# Ruta absoluta a la carpeta donde vive este archivo (database.py).
-# Así la DB siempre se crea en ~/tuner/ffbot.db sin importar el cwd.
-_HERE = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(_HERE, "ffbot.db")
+# En Koyeb usamos /data (volumen persistente)
+# En local usa el directorio del script
+if os.path.isdir("/data"):
+    DB_PATH = "/data/ffbot.db"
+else:
+    _HERE = os.path.dirname(os.path.abspath(__file__))
+    DB_PATH = os.path.join(_HERE, "ffbot.db")
 
 
 def init_db():
