@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Logs · FF Bot</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<nav class="navbar">
+    <div class="nav-brand">
+        <span class="logo-dot"></span>
+        FF <b>BOT</b> PANEL
+    </div>
+    <div class="nav-links">
+        <a href="/">Dashboard</a>
+        <a href="/accounts">Cuentas</a>
+        <a href="/logs" class="active">Logs</a>
+    </div>
+</nav>
+
+<div class="container">
+    <div class="hero">
+        <div>
+            <h1>Logs en vivo</h1>
+            <p class="hero-sub">Eventos del sistema · auto-refresh 2s</p>
+        </div>
+        <div class="log-controls">
+            <label class="switch-label">
+                <input type="checkbox" id="autoScroll" checked> Auto-scroll
+            </label>
+            <button onclick="clearDBLogs()" class="btn-ghost" style="color:var(--red);border-color:rgba(255,77,94,.35);">
+                🗑 Borrar TODOS los logs
+            </button>
+        </div>
+    </div>
+
+    <div class="card terminal-card">
+        <div class="terminal-bar">
+            <span class="dot red"></span>
+            <span class="dot yellow"></span>
+            <span class="dot green"></span>
+            <span class="terminal-title">ffbot@termux ~ logs</span>
+            <button onclick="clearOnlyView()" class="btn-mini" style="margin-left:auto;">
+                Ocultar vista
+            </button>
+        </div>
+        <div id="logsBox" class="logs-box"></div>
+    </div>
+</div>
+
+<script>
+async function loadLogs() {
+    try {
+        const logs = await (await fetch('/api/logs?limit=300')).json();
+        const box = document.getElementById('logsBox');
+        box.innerHTML = logs.map(l => {
+            const time = (l.timestamp||'').substring(11,19);
+            const lv = l.level || 'info';
+            const icon = {success:'✓',error:'✗',warning:'⚠',info:'›'}[lv] || '›';
+            return `<div class="log-line log-${lv}">
+                <span class="log-time">${time}</span>
+                <span class="log-icon">${icon}</span>
+                <span class="log-uid">[${l.account_uid}]</span>
+                <span class="log-msg">${escapeHtml(l.message)}</span>
+            </div>`;
+        }).join('');
+        if (document.getElementById('autoScroll').checked) box.scrollTop = 0;
+    } catch(e){}
+}
+
+function escapeHtml(s) {
+    return (s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function clearOnlyView() {
+    document.getElementById('logsBox').innerHTML = '';
+}
+
+async function clearDBLogs() {
+    if (!confirm('⚠️ ¿Borrar TODOS los logs de la base de datos?\n\nEsta acción no se puede deshacer.')) {
+        return;
+    }
+    try {
+        const r = await fetch('/api/logs/clear', {method: 'POST'});
+        const j = await r.json();
+        if (j.ok) {
+            document.getElementById('logsBox').innerHTML = '';
+            alert('✓ Logs borrados de la base de datos');
+        } else {
+            alert('✗ Error: ' + (j.msg || 'desconocido'));
+        }
+    } catch(e) {
+        alert('✗ Error de red: ' + e.message);
+    }
+}
+
+loadLogs();
+setInterval(loadLogs, 2000);
+</script>
+</body>
+</html>

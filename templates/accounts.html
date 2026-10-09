@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cuentas · FF Bot</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<nav class="navbar">
+    <div class="nav-brand">
+        <span class="logo-dot"></span>
+        FF <b>BOT</b> PANEL
+    </div>
+    <div class="nav-links">
+        <a href="/">Dashboard</a>
+        <a href="/accounts" class="active">Cuentas</a>
+        <a href="/logs">Logs</a>
+    </div>
+</nav>
+
+<div class="container">
+    <div class="hero">
+        <div>
+            <h1>Gestión de Cuentas</h1>
+            <p class="hero-sub">Agrega, pausa, o elimina cuentas de invitado</p>
+        </div>
+    </div>
+
+    <div class="card form-card">
+        <h3>➕ Nueva cuenta</h3>
+        <form id="addForm" class="form-grid">
+            <div class="field">
+                <label>UID</label>
+                <input name="uid" placeholder="8048437103" required>
+            </div>
+            <div class="field">
+                <label>Password</label>
+                <input name="password" placeholder="token hex..." required>
+            </div>
+            <div class="field">
+                <label>Región</label>
+                <select name="region">
+                    <option value="ME">ME</option>
+                    <option value="IND">IND</option>
+                    <option value="SG">SG</option>
+                    <option value="TH">TH</option>
+                    <option value="ID">ID</option>
+                    <option value="VN">VN</option>
+                    <option value="BD">BD</option>
+                    <option value="PK">PK</option>
+                    <option value="BR">BR</option>
+                    <option value="NA">NA</option>
+                    <option value="SAC">SAC</option>
+                </select>
+            </div>
+            <div class="field">
+                <label>Meta partidas (0 = ∞)</label>
+                <input type="number" name="max_matches" value="0" min="0">
+            </div>
+            <button type="submit" class="btn-primary">Agregar</button>
+        </form>
+        <div id="formMsg"></div>
+    </div>
+
+    <div class="section-header">
+        <h2>Lista de cuentas</h2>
+    </div>
+
+    <div class="card table-card">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Cuenta</th>
+                    <th>Región</th>
+                    <th>Nivel</th>
+                    <th>EXP</th>
+                    <th>Partidas</th>
+                    <th>Meta</th>
+                    <th>Estado</th>
+                    <th>Bot</th>
+                    <th>Acciones</th>
+                </tr>
+            </thead>
+            <tbody id="tbody"></tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+const STATUS_LABELS = {
+    'playing':    'jugando',
+    'searching':  'buscando',
+    'online':     'online',
+    'offline':    'offline',
+    'error':      'error',
+    'logging_in': 'logueando',
+    'idle':       'idle',
+};
+
+let _passwords = {};
+let _pwdVisible = {};
+
+async function load() {
+    const accounts = await (await fetch('/api/accounts')).json();
+    const tb = document.getElementById('tbody');
+    if (!accounts.length) {
+        tb.innerHTML = '<tr><td colspan="9" class="empty">Sin cuentas. Agrega una arriba.</td></tr>';
+        return;
+    }
+
+    // Cargar passwords de todas las cuentas
+    await Promise.all(accounts.map(async a => {
+        try {
+            const r = await fetch('/api/account/' + a.uid + '/credentials');
+            const j = await r.json();
+            if (j.ok) _passwords[a.uid] = j.password || '';
+        } catch(e) {}
+    }));
+
+    tb.innerHTML = accounts.map(a => {
+        const st = a.status || 'offline';
+        const stLabel = STATUS_LABELS[st] || st;
+        const pwd = _passwords[a.uid] || '—';
+        const showFull = _pwdVisible[a.uid];
+        const pwdDisplay = showFull ? pwd : (pwd.length > 20 ? pwd.substring(0, 20) + '…' : pwd);
+
+        return `
+        <tr>
+            <td data-label="Cuenta">
+                <div class="cell-account">
+                    <div class="cell-nick">${a.nickname || '—'}</div>
+                    <div class="cell-uid">${a.uid}</div>
+                    <div class="cell-uid" style="margin-top:6px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                        <span style="color:var(--txt-mute);font-weight:600;">PWD:</span>
+                        <code style="font-size:10px;color:var(--yellow);word-break:break-all;" id="pwd-${a.uid}">${pwdDisplay}</code>
+                        <button class="btn-mini" onclick="togglePwd('${a.uid}')" title="Mostrar/ocultar" style="padding:1px 6px;font-size:11px;">👁</button>
+                        <button class="btn-mini" onclick="copyPwd('${a.uid}')" title="Copiar" style="padding:1px 6px;font-size:11px;">📋</button>
+                    </div>
+                </div>
+            </td>
+            <td data-label="Región"><span class="tag">${a.region || '-'}</span></td>
+            <td data-label="Nivel"><b class="lv">${a.level}</b></td>
+            <td data-label="EXP">${a.exp}</td>
+            <td data-label="Partidas">
+                <div style="display:flex; flex-direction:column; gap:6px; min-width:120px;">
+                    <div style="display:flex; justify-content:space-between; font-size:11px;">
+                        <span style="color:var(--txt-mute);">jugadas</span>
+                        <b style="color:var(--blue-hi);">
+                            ${a.matches_played}${a.max_matches > 0 ? ' / ' + a.max_matches : ' · ∞'}
+                        </b>
+                    </div>
+                    ${a.max_matches > 0 ? `
+                    <div style="background:var(--bg-3); height:5px; border-radius:3px; overflow:hidden;">
+                        <div style="height:100%; width:${Math.min(100, Math.round(a.matches_played / a.max_matches * 100))}%; background:linear-gradient(90deg,var(--blue),var(--cyan));"></div>
+                    </div>` : ''}
+                </div>
+            </td>
+            <td data-label="Meta">
+                <div class="meta-cell">
+                    <input type="number" min="0" value="${a.max_matches || 0}"
+                           class="input-mini" id="max-${a.uid}">
+                    <button class="btn-mini" onclick="saveMax('${a.uid}')">💾</button>
+                </div>
+            </td>
+            <td data-label="Estado"><span class="status-pill ${st}">${stLabel}</span></td>
+            <td data-label="Bot">
+                <button class="switch ${a.bot_enabled==1?'on':''}"
+                        onclick="toggleBot('${a.uid}', ${a.bot_enabled==1?0:1})">
+                    <span></span>
+                </button>
+            </td>
+            <td data-label="Acciones">
+                <button class="btn-mini" onclick="resetMatches('${a.uid}')" title="Reset partidas">↻</button>
+                <button class="btn-mini" onclick="clearLogsUID('${a.uid}')" title="Borrar logs de esta cuenta" style="color:var(--yellow);">🧹</button>
+                <button class="btn-del" onclick="del('${a.uid}')" title="Eliminar">🗑</button>
+            </td>
+        </tr>
+        `;
+    }).join('');
+}
+
+function togglePwd(uid) {
+    _pwdVisible[uid] = !_pwdVisible[uid];
+    const el = document.getElementById('pwd-' + uid);
+    if (!el) return;
+    const full = _passwords[uid] || '';
+    if (_pwdVisible[uid]) {
+        el.textContent = full;
+    } else {
+        el.textContent = full.length > 20 ? full.substring(0, 20) + '…' : full;
+    }
+}
+
+function copyPwd(uid) {
+    const pwd = _passwords[uid] || '';
+    if (!pwd) { alert('No hay password'); return; }
+    navigator.clipboard.writeText(pwd).then(() => {
+        alert('✓ Password copiado');
+    }).catch(() => {
+        const ta = document.createElement('textarea');
+        ta.value = pwd;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        alert('✓ Password copiado');
+    });
+}
+
+async function saveMax(uid) {
+    const val = document.getElementById('max-' + uid).value;
+    const fd = new FormData(); fd.append('max_matches', val);
+    const r = await fetch('/api/account/' + uid + '/max_matches', {method:'POST', body: fd});
+    flash(r.ok ? 'Meta guardada' : 'Error', r.ok);
+}
+async function toggleBot(uid, on) {
+    const fd = new FormData(); fd.append('enabled', on ? '1' : '0');
+    const r = await fetch('/api/account/' + uid + '/bot', {method:'POST', body: fd});
+    if ((await r.json()).ok) load();
+}
+async function resetMatches(uid) {
+    if(!confirm('¿Reiniciar contador de partidas de ' + uid + '?')) return;
+    await fetch('/api/account/' + uid + '/reset', {method:'POST'});
+    load();
+}
+async function clearLogsUID(uid) {
+    if(!confirm('¿Borrar los logs de la cuenta ' + uid + '?')) return;
+    const r = await fetch('/api/logs/clear/' + uid, {method:'POST'});
+    const j = await r.json();
+    flash(j.ok ? '✓ Logs borrados' : '✗ Error', j.ok);
+}
+document.getElementById('addForm').onsubmit = async e => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const r = await fetch('/api/account/add', {method:'POST', body: fd});
+    const j = await r.json();
+    flash(j.ok ? '✓ Cuenta agregada' : '✗ ' + (j.msg||'Error'), j.ok);
+    if (j.ok) { e.target.reset(); load(); }
+};
+async function del(uid) {
+    if (!confirm('¿Eliminar ' + uid + '?')) return;
+    await fetch('/api/account/delete/' + uid, {method:'DELETE'});
+    load();
+}
+function flash(msg, ok) {
+    const el = document.getElementById('formMsg');
+    el.textContent = msg;
+    el.className = ok ? 'msg-ok' : 'msg-err';
+    setTimeout(() => { el.textContent = ''; }, 2500);
+}
+load();
+setInterval(load, 5000);
+</script>
+</body>
+</html>
